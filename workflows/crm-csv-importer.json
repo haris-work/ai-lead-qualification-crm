@@ -1,0 +1,237 @@
+{
+  "name": "Project 01 - Bulk CSV Lead Importer",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Bulk CRM Lead Import",
+        "formDescription": "Upload a CSV file to qualify leads and synchronize them with HubSpot",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "CSV File",
+              "fieldType": "file",
+              "multipleFiles": false,
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        0
+      ],
+      "id": "f7715ab3-5159-4c39-a5d8-68e57ab26b2e",
+      "name": "LeadsFileForm",
+      "webhookId": "52b61d90-7558-4580-8a94-8d29d213d2e5"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst rows = $input.all().map(item => {\nconst cleaned = {};\n\nfor (const [key, value] of Object.entries(item.json)) {\n  const cleanKey = key.replace(/^\\uFEFF/, \"\").trim();\n  cleaned[cleanKey] = value;\n}\n\nreturn {\n  ...item,\n  json: cleaned\n};\n});\n\n\nconst requiredColumns = [\n  \"event_id\",\n  \"lead_id\",\n  \"name\",\n  \"email\",\n  \"service\"\n];\n\nconst fields = [\n  \"event_id\",\n  \"lead_id\",\n  \"name\",\n  \"email\",\n  \"phone\",\n  \"company\",\n  \"service\",\n  \"budget\",\n  \"timeline\",\n  \"message\",\n  \"source\"\n];\n\nif (rows.length === 0) {\n  throw new Error(\"The CSV contains no records.\");\n}\n\nif (rows.length > 100) {\n  throw new Error(\n    \"Maximum 100 records per import for this test.\"\n  );\n}\n\nconst firstRow = rows[0].json;\n\nconst missing = requiredColumns.filter(\n  column => !(column in firstRow)\n);\n\nif (missing.length > 0) {\n  throw new Error(\n    \"Missing CSV columns: \" + missing.join(\", \")\n  );\n}\n\nconst eventIds = new Set();\n\nreturn rows.map((item, index) => {\n  const row = item.json;\n  const lead = {};\n\n  for (const field of fields) {\n    lead[field] =\n      String(row[field] ?? \"\").trim();\n  }\n\n  if (!lead.source) {\n    lead.source = \"csv_import\";\n  }\n\n  if (lead.event_id) {\n    if (eventIds.has(lead.event_id)) {\n      throw new Error(\n        `Duplicate event_id at CSV row ${index + 2}`\n      );\n    }\n\n    eventIds.add(lead.event_id);\n  }\n\n  return {\n    json: {\n      ...lead,\n      csv_row_number: index + 2\n    },\n    pairedItem: {\n      item: index\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "521cc431-5b1a-418b-bc89-26dcf50afba7",
+      "name": "PrepareCSVLeads"
+    },
+    {
+      "parameters": {
+        "binaryPropertyName": "CSV_File",
+        "options": {
+          "headerRow": true
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        0
+      ],
+      "id": "37b7fa6f-ce71-42b5-aae6-e8a0df84375d",
+      "name": "ExtractFromCSV"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        672,
+        0
+      ],
+      "id": "973f8b64-3527-4eb9-834e-264fc16969da",
+      "name": "ProcessLeadsSequentially"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/crm-new-lead",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "=\n{{ JSON.stringify({\n  event_id: $json.event_id,\n  lead_id: $json.lead_id,\n  name: $json.name,\n  email: $json.email,\n  phone: $json.phone,\n  company: $json.company,\n  service: $json.service,\n  budget: $json.budget,\n  timeline: $json.timeline,\n  message: $json.message,\n  source: $json.source\n}) }}\n",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        928,
+        48
+      ],
+      "id": "aeb7d427-9318-4c4a-a0df-d5b6e60e1424",
+      "name": "SubmitLeadToCRM",
+      "alwaysOutputData": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst responses = $input.all();\n\nreturn responses.map((item, index) => {\n  const data = item.json;\n\n  const status = Number(\n    data.statusCode ?? 0\n  );\n\n  const body =\n    data.body && typeof data.body === \"object\"\n      ? data.body\n      : {};\n\n  let outcome = \"failed\";\n\n  if (status === 200) {\n    outcome = body.duplicate\n      ? \"duplicate\"\n      : \"successful\";\n  } else if (status === 400) {\n    outcome = \"rejected\";\n  } else if (status === 409) {\n    outcome = \"in_progress\";\n  }\n\n  return {\n    json: {\n      event_id: body.event_id ?? null,\n      lead_id: body.lead_id ?? null,\n      email: body.email ?? null,\n      http_status: status,\n      outcome,\n      response: body,\n      transport_error:\n        data.error?.message ??\n        (status === 0\n          ? data.message ?? null\n          : null)\n    },\n    pairedItem: {\n      item: index\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        48
+      ],
+      "id": "ac527d5a-c6f4-4a1d-8060-a7097dfdacbd",
+      "name": "CaptureLeadResult"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1328,
+        48
+      ],
+      "id": "bd307cfb-00ed-4f69-92b1-132f845e7684",
+      "name": "Wait",
+      "webhookId": "c1bfa309-a859-4cdf-9fe2-3fde2153c5de"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst records = $input.all().map(\n  item => item.json\n);\n\nconst summary = {\n  total: records.length,\n  successful: 0,\n  duplicate: 0,\n  rejected: 0,\n  in_progress: 0,\n  failed: 0\n};\n\nfor (const record of records) {\n  if (record.outcome in summary) {\n    summary[record.outcome]++;\n  } else {\n    summary.failed++;\n  }\n}\n\nreturn [{\n  json: {\n    import_status:\n      summary.failed === 0 &&\n      summary.in_progress === 0\n        ? \"finished\"\n        : \"requires_attention\",\n\n    summary,\n\n    records,\n\n    completed_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        928,
+        -128
+      ],
+      "id": "78780ad7-6bfe-4356-8a1d-094b38211727",
+      "name": "GenerateImportSummary"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "LeadsFileForm": {
+      "main": [
+        [
+          {
+            "node": "ExtractFromCSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ExtractFromCSV": {
+      "main": [
+        [
+          {
+            "node": "PrepareCSVLeads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PrepareCSVLeads": {
+      "main": [
+        [
+          {
+            "node": "ProcessLeadsSequentially",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ProcessLeadsSequentially": {
+      "main": [
+        [
+          {
+            "node": "GenerateImportSummary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "SubmitLeadToCRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SubmitLeadToCRM": {
+      "main": [
+        [
+          {
+            "node": "CaptureLeadResult",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CaptureLeadResult": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "ProcessLeadsSequentially",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "34b2debe-7414-4ed7-99e9-6037443b3810",
+  "meta": {
+    "instanceId": "99e1c58029993d7b83d366bc872a943b0991500537209606cfaa01b57a7dc6bd"
+  },
+  "nodeGroups": [],
+  "id": "jha5FAoP2WMRAb54",
+  "tags": []
+}

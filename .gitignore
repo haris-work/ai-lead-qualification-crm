@@ -1,0 +1,38 @@
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*credentials*.json
+*secret*.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# JavaScript
+node_modules/
+dist/
+build/
+
+# Local data and logs
+*.db
+*.sqlite
+*.sqlite3
+*.log
+data/private/
+backups/
+n8n_data/
+
+# Operating system
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor files
+.vscode/
+.idea/

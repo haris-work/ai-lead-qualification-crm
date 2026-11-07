@@ -1,0 +1,6 @@
+﻿event_id,lead_id,name,email,phone,company,service,budget,timeline,message,source
+EVENT-201,LEAD-201,John Carter,john@example.com,+15550100201,Carter Digital,AI Chatbot,2500,Within 30 days,We need a customer support chatbot,csv_import
+EVENT-202,LEAD-202,Emily Davis,emily@example.com,+15550100202,Davis Realty,CRM Automation,4500,Within 14 days,Automate lead qualification and CRM updates,csv_import
+EVENT-203,LEAD-203,Robert Lee,invalid-email,+15550100203,Lee Company,AI Automation,1800,Within 60 days,We want automated customer followups,csv_import
+EVENT-204,LEAD-204,Sophia Wilson,sophia@example.com,+15550100204,Wilson Media,Website Development,700,Within 90 days,We need a company website,csv_import
+EVENT-205,LEAD-205,Daniel Green,daniel@example.com,+15550100205,Green Retail,AI Customer Support,6000,Within 30 days,We need AI support integrated with our store,csv_import

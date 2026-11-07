@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BrightPath Digital — Project Inquiry</title>
+  <style>
+    :root{font-family:Inter,system-ui,-apple-system,Segoe UI,Arial,sans-serif;color:#172235;background:#f4f7fb}
+    *{box-sizing:border-box}body{margin:0;padding:36px 16px}.shell{max-width:740px;margin:auto}
+    .eyebrow{font-size:.75rem;letter-spacing:.16em;text-transform:uppercase;color:#4762a5;font-weight:800}
+    h1{font-size:clamp(1.8rem,4vw,2.65rem);letter-spacing:-.04em;margin:12px 0 10px}
+    .intro{color:#61708a;line-height:1.6;margin-bottom:25px}.panel{background:white;padding:clamp(20px,4vw,38px);border-radius:20px;box-shadow:0 14px 55px #1a39700d;border:1px solid #e2e8f2}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.field{margin:0 0 18px}label{display:block;font-size:.87rem;font-weight:650;margin-bottom:8px}
+    input,select,textarea{width:100%;border:1px solid #cad4e2;border-radius:9px;padding:12px 13px;font:inherit;color:#172235;background:white;outline:none}
+    input:focus,select:focus,textarea:focus{border-color:#3867d6;box-shadow:0 0 0 3px #3867d61c}textarea{min-height:124px;resize:vertical}
+    .hint{font-size:.78rem;color:#718099;margin-top:5px}button{width:100%;border:0;border-radius:10px;background:#244fc1;color:white;font-weight:750;font-size:1rem;padding:15px;cursor:pointer}
+    button:disabled{opacity:.65;cursor:wait}.status{display:none;margin-top:19px;padding:15px;border-radius:10px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+    .status.success{display:block;background:#eaf8ee;border:1px solid #9bd6ad;color:#135a2b}
+    .status.error{display:block;background:#fff1f1;border:1px solid #efb6b6;color:#882626}
+    .status.info{display:block;background:#edf3ff;border:1px solid #b8cafa;color:#254c93}
+    footer{margin-top:20px;font-size:.8rem;color:#78869b;text-align:center}
+    @media(max-width:590px){.grid{grid-template-columns:1fr}body{padding-top:18px}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="eyebrow">BrightPath Digital · Demo project</div>
+    <h1>Tell us about your project</h1>
+    <p class="intro">Share a few details about what you're building. Our team will review your inquiry and follow up. This local demo uses fictional test customers.</p>
+    <section class="panel">
+      <form id="leadForm">
+        <div class="grid">
+          <div class="field"><label for="name">Full name *</label><input id="name" name="name" required minlength="2" maxlength="120" placeholder="Sarah Johnson" /></div>
+          <div class="field"><label for="email">Work email *</label><input id="email" name="email" type="email" required maxlength="254" placeholder="sarah@example.com" /></div>
+          <div class="field"><label for="phone">Phone number</label><input id="phone" name="phone" type="tel" maxlength="40" placeholder="+15550100123" /></div>
+          <div class="field"><label for="company">Company</label><input id="company" name="company" maxlength="120" placeholder="BrightPath Solutions" /></div>
+          <div class="field"><label for="service">Service required *</label>
+            <select id="service" name="service" required><option value="">Choose a service</option><option>AI Customer Support Chatbot</option><option>CRM Automation</option><option>AI Workflow Automation</option><option>Custom Software Development</option><option>API Integration</option><option>Other</option></select></div>
+          <div class="field"><label for="budget">Approximate budget (USD)</label><input id="budget" name="budget" type="number" min="0" step="1" placeholder="2500" /></div>
+        </div>
+        <div class="field"><label for="timeline">Preferred timeline</label>
+          <select id="timeline" name="timeline"><option value="">Not sure yet</option><option>Within 14 days</option><option>Within 30 days</option><option>Within 60 days</option><option>Within 90 days</option><option>Flexible</option></select></div>
+        <div class="field"><label for="message">Project details</label><textarea id="message" name="message" maxlength="4000" placeholder="Describe your requirements, current tools, and goals..."></textarea><div class="hint">No passwords, API keys, or confidential data in this demo.</div></div>
+        <button type="submit" id="submitBtn">Submit project inquiry</button>
+        <div role="status" aria-live="polite" id="status" class="status"></div>
+      </form>
+    </section>
+    <footer>Local test form · Your n8n webhook must be running on localhost:5678</footer>
+  </main>
+<script>
+  const WEBHOOK_URL = 'http://localhost:5678/webhook/crm-new-lead';
+  const form = document.getElementById('leadForm');
+  const statusBox = document.getElementById('status');
+  const submitBtn = document.getElementById('submitBtn');
+  let pendingSubmission = null;
+
+  function showStatus(message, type) {
+    statusBox.textContent = message;
+    statusBox.className = 'status ' + type;
+  }
+
+  // A failed or uncertain submission keeps the same event ID for safe retries.
+  form.addEventListener('input', () => { pendingSubmission = null; });
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    const fields = Object.fromEntries(new FormData(form).entries());
+    if (!pendingSubmission) {
+      const id = crypto.randomUUID();
+      pendingSubmission = { ...fields, event_id: id, lead_id: id, source: 'website_form' };
+    }
+    const payload = new URLSearchParams(pendingSubmission);
+    submitBtn.disabled = true;
+    showStatus('Submitting your inquiry…', 'info');
+    try {
+      const response = await fetch(WEBHOOK_URL, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
+        body: payload.toString()
+      });
+      const bodyText = await response.text();
+      let result;
+      try { result = JSON.parse(bodyText); } catch { result = {message: bodyText}; }
+      if (response.ok && result.success === true) {
+        showStatus(result.duplicate ? 'This inquiry was already received. Thank you!' : 'Thank you! Your inquiry was received successfully.', 'success');
+        pendingSubmission = null;
+        form.reset();
+      } else if (response.status === 400) {
+        const details = Array.isArray(result.details) ? '\n' + result.details.join('\n') : '';
+        showStatus((result.message || 'Some information is invalid.') + details, 'error');
+        pendingSubmission = null;
+      } else if (response.status === 409) {
+        showStatus('Your inquiry is still processing. Please retry after a short interval using the same form.', 'info');
+      } else {
+        showStatus('We could not confirm that your inquiry was saved. Please retry without editing the form. ' + (result.message || ''), 'error');
+      }
+    } catch (err) {
+      showStatus('Could not reach or read the CRM webhook. Check that n8n is running and that CORS allows http://localhost:5500. Retry without editing the form. Details: ' + err.message, 'error');
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
